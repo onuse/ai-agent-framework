@@ -69,11 +69,11 @@ class WorkerAgent:
             # Apply domain-appropriate validation
             print(f"[DEBUG] Validating solution...")
             #validation_result = self._validate_solution(solution_result, task, domain)
-            validation_result = self.validator.validate_and_improve(solution, task, language)
+            validation_result = self.validator.validate_and_improve(solution_result['solution'], task, solution_result.get('language', 'python'))
             print(f"[DEBUG] Validation passed: {validation_result['validation_passed']}")
             
             # Use the validated/improved solution
-            final_solution = validation_result['final_solution']
+            final_solution = validation_result['final_code']
             
             if validation_result['issues_found'] > 0:
                 print(f"[WORKER] Issues found: {validation_result['issues_found']}")
@@ -107,7 +107,7 @@ class WorkerAgent:
                 
                 result = {
                     'solution': final_solution,
-                    'original_solution': validation_result['original_solution'],
+                    'original_solution': validation_result['original_code'],
                     'output': execution_result['output'],
                     'artifact_path': artifact_path,
                     'explanation': solution_result.get('explanation', ''),
