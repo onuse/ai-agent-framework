@@ -112,13 +112,19 @@ DELIVERABLE: {task_data.get('deliverable', 'Working code')}
 
 {context}
 
+CRITICAL REQUIREMENTS:
+1. Create code that runs and exits cleanly (no infinite loops, no input() calls)
+2. Use print() statements for output instead of requiring user interaction
+3. Include proper error handling
+4. Make the code self-contained and executable
+
 Generate production-ready Python code that:
 1. Follows best practices and PEP 8 style guidelines
 2. Includes comprehensive error handling
 3. Has clear, informative comments
 4. Is modular and reusable
-5. Includes input validation where appropriate
-6. Prints progress/status information
+5. Prints progress/status information
+6. RUNS AND EXITS CLEANLY (no waiting for input, no infinite loops)
 
 Focus on:
 - Clean architecture and separation of concerns
@@ -126,6 +132,7 @@ Focus on:
 - Efficient algorithms and data structures
 - Clear variable and function names
 - Comprehensive docstrings
+- Code that demonstrates functionality and then exits
 
 Format your response as:
 EXPLANATION:
@@ -133,10 +140,10 @@ EXPLANATION:
 
 CODE:
 ```python
-[Your complete, production-ready Python code]
+[Your complete, production-ready Python code that runs and exits cleanly]
 ```
 
-Ensure the code is immediately executable and handles edge cases gracefully."""
+IMPORTANT: The code must be immediately executable and demonstrate the functionality without requiring user input or running indefinitely."""
         
         return base_prompt
     
@@ -203,9 +210,14 @@ DELIVERABLE: {task_data.get('deliverable', 'Data analysis')}
 
 {context}
 
+CRITICAL REQUIREMENTS:
+1. Create code that runs with sample/mock data (no external file dependencies)
+2. Use print() statements to show results
+3. Code should run and exit cleanly
+
 Generate comprehensive data analysis code that:
 1. Uses pandas, numpy, and matplotlib/seaborn effectively
-2. Includes proper data cleaning and validation
+2. Creates sample data if no data is provided
 3. Performs relevant statistical analysis
 4. Creates clear, informative visualizations
 5. Provides meaningful insights and conclusions
@@ -225,10 +237,10 @@ EXPLANATION:
 
 CODE:
 ```python
-[Your complete data analysis code with visualizations]
+[Your complete data analysis code with sample data and visualizations]
 ```
 
-Ensure the analysis is statistically sound and provides clear business value."""
+Ensure the analysis uses sample data and runs completely without external dependencies."""
         
         return base_prompt
     
@@ -347,6 +359,11 @@ DELIVERABLE: {task_data.get('deliverable', 'Game code')}
 
 {context}
 
+CRITICAL REQUIREMENTS:
+1. For demonstration purposes, create a game that runs briefly and then exits
+2. Include a demo mode that shows gameplay without requiring user input
+3. Use print() statements to describe what's happening
+
 Create engaging game code that:
 1. Implements smooth, responsive gameplay mechanics
 2. Uses efficient algorithms for real-time performance
@@ -375,10 +392,10 @@ EXPLANATION:
 
 CODE:
 ```python
-[Your complete game code with proper game loop and mechanics]
+[Your complete game code with demo mode that runs and exits cleanly]
 ```
 
-Ensure the game is playable, engaging, and demonstrates solid game development principles."""
+Ensure the game demonstrates functionality and then exits for testing purposes."""
         
         return base_prompt
     

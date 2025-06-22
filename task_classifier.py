@@ -1,235 +1,227 @@
+import ollama
+import json
 from typing import Dict, Any, List, Optional
-import re
 
 class TaskClassifier:
-    """Classifies tasks into different domains for specialized processing."""
+    """LLM-powered task classifier that understands context and intent."""
     
-    def __init__(self):
-        self.domain_patterns = {
+    def __init__(self, model_name: str = "llama3.1:8b"):
+        self.model_name = model_name
+        self.domain_definitions = {
             'code': {
-                'keywords': [
-                    'implement', 'code', 'function', 'class', 'api', 'algorithm',
-                    'program', 'script', 'application', 'software', 'system',
-                    'framework', 'library', 'module', 'backend', 'frontend',
-                    'database', 'server', 'client', 'build', 'develop'
-                ],
-                'technologies': [
-                    'python', 'javascript', 'java', 'c++', 'html', 'css',
-                    'react', 'django', 'flask', 'node', 'sql', 'git',
-                    'docker', 'kubernetes', 'aws', 'rest', 'graphql'
-                ],
-                'patterns': [
-                    r'\b(def|class|import|function)\b',
-                    r'\b(\.py|\.js|\.html|\.css)\b',
-                    r'\b(git|github|repository)\b'
-                ]
+                'description': 'Software development, programming, building applications, scripts, APIs, algorithms, or any technical implementation',
+                'examples': ['Create a calculator', 'Build a web API', 'Implement sorting algorithm', 'Debug Python code']
             },
             'creative': {
-                'keywords': [
-                    'write', 'story', 'novel', 'chapter', 'character', 'plot',
-                    'narrative', 'dialogue', 'scene', 'poem', 'script',
-                    'screenplay', 'book', 'fiction', 'creative', 'literature',
-                    'author', 'compose', 'draft', 'manuscript'
-                ],
-                'genres': [
-                    'science fiction', 'fantasy', 'mystery', 'romance',
-                    'thriller', 'horror', 'drama', 'comedy', 'adventure'
-                ],
-                'patterns': [
-                    r'\b(chapter|page|word count)\b',
-                    r'\b(protagonist|antagonist|character)\b',
-                    r'\b(first person|third person)\b'
-                ]
+                'description': 'Creative writing, storytelling, content creation, poetry, scripts, or artistic expression',
+                'examples': ['Write a short story', 'Create a poem about nature', 'Draft a screenplay', 'Compose song lyrics']
             },
             'data': {
-                'keywords': [
-                    'analyze', 'data', 'statistics', 'chart', 'graph', 'plot',
-                    'visualization', 'dataset', 'csv', 'excel', 'database',
-                    'query', 'report', 'metrics', 'analytics', 'insights',
-                    'correlation', 'regression', 'machine learning', 'ai',
-                    'pandas', 'numpy', 'matplotlib', 'seaborn'
-                ],
-                'file_types': [
-                    'csv', 'xlsx', 'json', 'xml', 'sql', 'parquet'
-                ],
-                'patterns': [
-                    r'\b(pandas|numpy|matplotlib|seaborn|plotly)\b',
-                    r'\b(\.csv|\.xlsx|\.json)\b',
-                    r'\b(mean|median|std|correlation)\b'
-                ]
+                'description': 'Data analysis, statistics, visualization, machine learning, or processing datasets',
+                'examples': ['Analyze sales trends', 'Create data visualization', 'Process CSV files', 'Build ML model']
             },
             'ui': {
-                'keywords': [
-                    'interface', 'ui', 'ux', 'design', 'layout', 'user',
-                    'screen', 'page', 'form', 'button', 'menu', 'navigation',
-                    'responsive', 'mobile', 'desktop', 'web', 'gui',
-                    'tkinter', 'qt', 'gtk', 'javafx', 'swing'
-                ],
-                'ui_elements': [
-                    'button', 'textbox', 'dropdown', 'checkbox', 'radio',
-                    'slider', 'menu', 'toolbar', 'dialog', 'window'
-                ],
-                'patterns': [
-                    r'\b(tkinter|gui|window|dialog)\b',
-                    r'\b(css|html|bootstrap|react)\b',
-                    r'\b(responsive|mobile|desktop)\b'
-                ]
+                'description': 'User interface design, user experience, creating visual interfaces, or improving usability',
+                'examples': ['Design a login form', 'Create mobile app interface', 'Improve website UX', 'Build GUI application']
             },
             'research': {
-                'keywords': [
-                    'research', 'investigate', 'study', 'analyze', 'gather',
-                    'information', 'facts', 'sources', 'references', 'review',
-                    'survey', 'examine', 'explore', 'documentation', 'report',
-                    'summary', 'overview', 'background', 'literature'
-                ],
-                'academic': [
-                    'paper', 'journal', 'article', 'citation', 'bibliography',
-                    'methodology', 'hypothesis', 'conclusion', 'abstract'
-                ],
-                'patterns': [
-                    r'\b(research|investigate|study)\b',
-                    r'\b(sources|references|citations)\b',
-                    r'\b(academic|scholarly|peer-reviewed)\b'
-                ]
+                'description': 'Information gathering, analysis, documentation, reports, or investigative work',
+                'examples': ['Research market trends', 'Write technical documentation', 'Analyze competitors', 'Create project report']
             },
             'game': {
-                'keywords': [
-                    'game', 'gaming', 'player', 'level', 'score', 'character',
-                    'enemy', 'weapon', 'physics', 'graphics', 'engine',
-                    'raycast', 'collision', 'animation', 'sprite', 'texture',
-                    'doom', 'mario', 'platformer', 'puzzle', 'arcade'
-                ],
-                'game_types': [
-                    'fps', 'rpg', 'rts', 'platformer', 'puzzle', 'arcade',
-                    'shooter', 'adventure', 'simulation', 'strategy'
-                ],
-                'patterns': [
-                    r'\b(pygame|unity|unreal|godot)\b',
-                    r'\b(fps|rpg|mmo|rts)\b',
-                    r'\b(raycast|collision|physics)\b'
-                ]
+                'description': 'Game development, interactive entertainment, game mechanics, or gaming-related content',
+                'examples': ['Create a puzzle game', 'Build physics engine', 'Design game characters', 'Implement collision detection']
             }
         }
     
     def classify_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
-        """Classify a task into domain categories with confidence scores and fallback handling."""
+        """Classify task using LLM understanding of context and intent."""
         
-        # Extract text for analysis
-        title = task.get('title', '').lower()
-        description = task.get('description', '').lower()
-        deliverable = task.get('subtask_data', {}).get('deliverable', '').lower()
+        # Extract task information
+        title = task.get('title', '')
+        description = task.get('description', '')
+        deliverable = task.get('subtask_data', {}).get('deliverable', '')
         
-        combined_text = f"{title} {description} {deliverable}"
+        # Create classification prompt
+        prompt = self._create_classification_prompt(title, description, deliverable)
         
-        # Calculate confidence scores for each domain
-        domain_scores = {}
+        try:
+            response = ollama.chat(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            content = response['message']['content']
+            classification_result = self._parse_classification_response(content)
+            
+            # Validate and enhance the result
+            return self._validate_and_enhance_classification(classification_result, task)
+            
+        except Exception as e:
+            print(f"[CLASSIFIER] LLM classification failed: {e}")
+            # Fallback to simple heuristic
+            return self._fallback_classification(title, description, deliverable)
+    
+    def _create_classification_prompt(self, title: str, description: str, deliverable: str) -> str:
+        """Create a comprehensive classification prompt for the LLM."""
         
-        for domain, patterns in self.domain_patterns.items():
-            score = self._calculate_domain_score(combined_text, patterns)
-            domain_scores[domain] = score
+        # Build domain descriptions
+        domain_descriptions = []
+        for domain, info in self.domain_definitions.items():
+            examples_str = ", ".join(f'"{ex}"' for ex in info['examples'][:2])
+            domain_descriptions.append(f"- **{domain}**: {info['description']}\n  Examples: {examples_str}")
         
-        # Determine primary and secondary domains
-        sorted_domains = sorted(domain_scores.items(), key=lambda x: x[1], reverse=True)
-        primary_domain = sorted_domains[0][0]
-        primary_confidence = sorted_domains[0][1]
+        domains_text = "\n".join(domain_descriptions)
         
-        secondary_domain = sorted_domains[1][0] if len(sorted_domains) > 1 else None
-        secondary_confidence = sorted_domains[1][1] if len(sorted_domains) > 1 else 0.0
+        prompt = f"""You are an expert task classifier. Analyze the following task and classify it into the most appropriate domain.
+
+TASK TO CLASSIFY:
+Title: "{title}"
+Description: "{description}"
+Expected Deliverable: "{deliverable}"
+
+AVAILABLE DOMAINS:
+{domains_text}
+
+CLASSIFICATION INSTRUCTIONS:
+1. Read the task carefully and understand the core intent
+2. Consider what type of work is actually being requested
+3. Think about what skills and tools would be needed
+4. Determine if this spans multiple domains (hybrid task)
+5. Assign confidence based on how clear the classification is
+
+Respond in JSON format:
+{{
+    "primary_domain": "domain_name",
+    "confidence": 0.0-1.0,
+    "reasoning": "Brief explanation of why you chose this domain",
+    "secondary_domain": "domain_name or null",
+    "is_hybrid": true/false,
+    "approach": "specialized|specialized_cautious|hybrid|generic_fallback",
+    "key_indicators": ["list", "of", "key", "words", "or", "phrases", "that", "influenced", "decision"]
+}}
+
+GUIDELINES:
+- confidence > 0.8: Very clear classification → approach = "specialized"
+- confidence 0.5-0.8: Clear but some ambiguity → approach = "specialized_cautious" 
+- Multiple domains with similar confidence → approach = "hybrid"
+- confidence < 0.5: Unclear classification → approach = "generic_fallback"
+- is_hybrid = true if task clearly spans 2+ domains significantly
+
+Focus on the ACTUAL WORK being requested, not just keywords."""
         
-        # Detect hybrid tasks (multiple high-confidence domains)
-        is_hybrid = self._is_hybrid_task(domain_scores)
+        return prompt
+    
+    def _parse_classification_response(self, content: str) -> Dict[str, Any]:
+        """Parse the LLM's classification response."""
         
-        # Apply confidence thresholds and fallback logic
-        if primary_confidence < 0.15:
-            # Very low confidence - fall back to generic code approach
+        try:
+            # Find JSON in the response
+            start_idx = content.find('{')
+            end_idx = content.rfind('}') + 1
+            
+            if start_idx != -1 and end_idx != -1:
+                json_content = content[start_idx:end_idx]
+                result = json.loads(json_content)
+                return result
+            else:
+                raise ValueError("No valid JSON found in response")
+                
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"[CLASSIFIER] Failed to parse LLM response: {e}")
+            print(f"[CLASSIFIER] Raw response: {content[:200]}...")
+            raise
+    
+    def _validate_and_enhance_classification(self, result: Dict[str, Any], task: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and enhance the classification result."""
+        
+        # Ensure required fields exist
+        primary_domain = result.get('primary_domain', 'code')
+        confidence = float(result.get('confidence', 0.5))
+        
+        # Validate domain exists
+        if primary_domain not in self.domain_definitions:
+            print(f"[CLASSIFIER] Invalid domain '{primary_domain}', defaulting to 'code'")
             primary_domain = 'code'
-            primary_confidence = 0.5
-            approach = 'generic_fallback'
-        elif primary_confidence < 0.35:
-            # Low confidence - use cautious specialized approach
-            approach = 'specialized_cautious'
-        elif is_hybrid:
-            # Multiple domains detected - use hybrid approach
-            approach = 'hybrid'
-        else:
-            # High confidence - use full specialized approach
-            approach = 'specialized'
+            confidence = 0.3
         
-        return {
+        # Determine approach if not provided or invalid
+        approach = result.get('approach')
+        if not approach or approach not in ['specialized', 'specialized_cautious', 'hybrid', 'generic_fallback']:
+            if confidence > 0.8:
+                approach = 'specialized'
+            elif confidence > 0.5:
+                approach = 'specialized_cautious'
+            elif result.get('is_hybrid', False):
+                approach = 'hybrid'
+            else:
+                approach = 'generic_fallback'
+        
+        # Build enhanced result
+        enhanced_result = {
             'primary_domain': primary_domain,
-            'secondary_domain': secondary_domain,
-            'confidence': primary_confidence,
-            'secondary_confidence': secondary_confidence,
-            'all_scores': domain_scores,
-            'is_confident': primary_confidence > 0.35,
-            'is_hybrid': is_hybrid,
+            'secondary_domain': result.get('secondary_domain'),
+            'confidence': confidence,
+            'reasoning': result.get('reasoning', 'LLM-based classification'),
+            'is_hybrid': result.get('is_hybrid', False),
             'approach': approach,
-            'fallback_reason': self._get_fallback_reason(primary_confidence, is_hybrid)
+            'key_indicators': result.get('key_indicators', []),
+            'is_confident': confidence > 0.5,
+            'fallback_reason': self._get_fallback_reason(confidence, result.get('is_hybrid', False), approach),
+            'classification_method': 'llm_powered'
         }
+        
+        return enhanced_result
     
-    def _is_hybrid_task(self, domain_scores: Dict[str, float]) -> bool:
-        """Detect if task spans multiple domains."""
+    def _get_fallback_reason(self, confidence: float, is_hybrid: bool, approach: str) -> Optional[str]:
+        """Generate fallback reason based on classification results."""
         
-        # Sort scores in descending order
-        sorted_scores = sorted(domain_scores.values(), reverse=True)
-        
-        if len(sorted_scores) < 2:
-            return False
-        
-        # If top 2 scores are both high and close together, it's hybrid
-        top_score = sorted_scores[0]
-        second_score = sorted_scores[1]
-        
-        # Hybrid criteria:
-        # 1. Both scores are reasonably high (> 0.25)
-        # 2. The difference between them is small (< 0.3)
-        if top_score > 0.25 and second_score > 0.25 and (top_score - second_score) < 0.3:
-            return True
-        
-        return False
-    
-    def _get_fallback_reason(self, confidence: float, is_hybrid: bool) -> Optional[str]:
-        """Get explanation for why fallback was triggered."""
-        
-        if confidence < 0.15:
-            return "Very low classification confidence - using generic approach"
-        elif confidence < 0.35:
-            return "Low classification confidence - using cautious specialized approach"
-        elif is_hybrid:
+        if approach == 'generic_fallback':
+            return f"Low confidence classification ({confidence:.2f}) - using generic approach"
+        elif approach == 'specialized_cautious':
+            return f"Moderate confidence ({confidence:.2f}) - using cautious specialized approach"
+        elif approach == 'hybrid':
             return "Multiple domains detected - using hybrid approach"
         else:
             return None
     
-    def _calculate_domain_score(self, text: str, patterns: Dict[str, List]) -> float:
-        """Calculate confidence score for a specific domain."""
+    def _fallback_classification(self, title: str, description: str, deliverable: str) -> Dict[str, Any]:
+        """Simple fallback classification when LLM fails."""
         
-        total_score = 0.0
-        total_weight = 0.0
+        combined_text = f"{title} {description} {deliverable}".lower()
         
-        # Check keywords (weight: 1.0)
-        keyword_matches = sum(1 for keyword in patterns.get('keywords', []) if keyword in text)
-        if patterns.get('keywords'):
-            total_score += (keyword_matches / len(patterns['keywords'])) * 1.0
-            total_weight += 1.0
+        # Simple keyword-based fallback
+        if any(word in combined_text for word in ['story', 'write', 'creative', 'poem', 'novel']):
+            primary_domain = 'creative'
+            confidence = 0.6
+        elif any(word in combined_text for word in ['data', 'analyze', 'chart', 'csv', 'statistics']):
+            primary_domain = 'data'
+            confidence = 0.6
+        elif any(word in combined_text for word in ['game', 'player', 'level', 'arcade', 'puzzle']):
+            primary_domain = 'game'
+            confidence = 0.6
+        elif any(word in combined_text for word in ['interface', 'ui', 'design', 'button', 'form']):
+            primary_domain = 'ui'
+            confidence = 0.6
+        elif any(word in combined_text for word in ['research', 'investigate', 'report', 'study']):
+            primary_domain = 'research'
+            confidence = 0.6
+        else:
+            primary_domain = 'code'
+            confidence = 0.5
         
-        # Check secondary terms (weight: 0.7)
-        for category in ['technologies', 'genres', 'file_types', 'ui_elements', 'academic', 'game_types']:
-            if category in patterns:
-                matches = sum(1 for term in patterns[category] if term in text)
-                if patterns[category]:
-                    total_score += (matches / len(patterns[category])) * 0.7
-                    total_weight += 0.7
-        
-        # Check regex patterns (weight: 0.5)
-        if 'patterns' in patterns:
-            pattern_matches = sum(1 for pattern in patterns['patterns'] 
-                                if re.search(pattern, text, re.IGNORECASE))
-            if patterns['patterns']:
-                total_score += (pattern_matches / len(patterns['patterns'])) * 0.5
-                total_weight += 0.5
-        
-        # Return normalized score
-        return total_score / total_weight if total_weight > 0 else 0.0
+        return {
+            'primary_domain': primary_domain,
+            'secondary_domain': None,
+            'confidence': confidence,
+            'reasoning': 'Fallback keyword-based classification',
+            'is_hybrid': False,
+            'approach': 'specialized_cautious',
+            'key_indicators': ['fallback_classification'],
+            'is_confident': confidence > 0.5,
+            'fallback_reason': 'LLM classification failed - using keyword fallback',
+            'classification_method': 'keyword_fallback'
+        }
     
     def get_domain_info(self, domain: str) -> Dict[str, Any]:
         """Get information about a specific domain."""
@@ -275,20 +267,22 @@ class TaskClassifier:
         
         return domain_info.get(domain, domain_info['code'])
     
-    def suggest_specialized_approach(self, classification: Dict[str, Any]) -> Dict[str, Any]:
-        """Suggest specialized processing approach based on classification."""
+    def explain_classification(self, classification: Dict[str, Any]) -> str:
+        """Generate human-readable explanation of the classification."""
         
-        domain = classification['primary_domain']
-        confidence = classification['confidence']
-        domain_info = self.get_domain_info(domain)
+        explanation = f"🏷️ Classified as '{classification['primary_domain']}' domain "
+        explanation += f"with {classification['confidence']:.1%} confidence.\n"
         
-        suggestions = {
-            'domain': domain,
-            'confidence': confidence,
-            'execution_strategy': domain_info['execution_type'],
-            'validation_priorities': domain_info['validation_focus'],
-            'recommended_file_ext': domain_info['file_extensions'][0],
-            'specialized_prompting': True if confidence > 0.3 else False
-        }
+        if classification.get('reasoning'):
+            explanation += f"💭 Reasoning: {classification['reasoning']}\n"
         
-        return suggestions
+        if classification.get('key_indicators'):
+            indicators = ', '.join(classification['key_indicators'][:3])
+            explanation += f"🔍 Key indicators: {indicators}\n"
+        
+        if classification.get('is_hybrid'):
+            explanation += f"🔄 Hybrid task also involving: {classification.get('secondary_domain')}\n"
+        
+        explanation += f"⚙️ Approach: {classification['approach']}"
+        
+        return explanation
