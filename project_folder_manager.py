@@ -203,12 +203,250 @@ Files in this project are automatically generated and organized by domain:
             # Update project metadata
             self._update_project_file_count(project_folder, domain, language)
             
+            # Check if we should generate an entry point
+            self._maybe_generate_entry_point(project_folder, domain, language, objective)
+            
             print(f"[PROJECT] Saved: {os.path.basename(project_folder)}/{filename}")
             return filepath
             
         except Exception as e:
             print(f"[PROJECT] Error saving artifact: {e}")
             return ""
+    
+    def _maybe_generate_entry_point(self, project_folder: str, domain: str, language: str, objective: str):
+        """Generate entry point files if appropriate."""
+        
+        # Get list of existing files
+        existing_files = []
+        try:
+            existing_files = [f for f in os.listdir(project_folder) 
+                            if f.endswith(('.js', '.py', '.html', '.css')) and not f.startswith('.')]
+        except:
+            return
+        
+        # Count files by type
+        js_files = [f for f in existing_files if f.endswith('.js')]
+        py_files = [f for f in existing_files if f.endswith('.py')]
+        html_files = [f for f in existing_files if f.endswith('.html')]
+        
+        # Generate entry points based on project characteristics
+        if language == 'javascript' and len(js_files) >= 2 and not html_files:
+            self._generate_html_entry_point(project_folder, js_files, objective)
+        
+        elif language == 'python' and len(py_files) >= 2 and not any('main' in f.lower() for f in py_files):
+            self._generate_python_main(project_folder, py_files, objective)
+        
+        elif domain == 'game' and len(existing_files) >= 2:
+            if language == 'javascript':
+                self._generate_game_html_entry(project_folder, js_files, objective)
+            elif language == 'python':
+                self._generate_game_python_main(project_folder, py_files, objective)
+    
+    def _generate_html_entry_point(self, project_folder: str, js_files: List[str], objective: str):
+        """Generate HTML entry point for JavaScript projects."""
+        
+        html_path = os.path.join(project_folder, "index.html")
+        if os.path.exists(html_path):
+            return  # Don't overwrite existing HTML
+        
+        # Determine if this is a game or web app
+        is_game = any(word in objective.lower() for word in ['game', 'doom', 'arcade', 'puzzle', 'player'])
+        
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{objective}</title>
+    <style>
+        body {{
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }}
+        
+        h1 {{
+            color: #4CAF50;
+            text-align: center;
+            margin-bottom: 20px;
+        }}
+        
+        #gameContainer {{
+            text-align: center;
+            margin: 20px 0;
+        }}
+        
+        canvas {{
+            border: 2px solid #4CAF50;
+            background-color: #000;
+            display: block;
+            margin: 0 auto;
+        }}
+        
+        .controls {{
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #2a2a2a;
+            border-radius: 8px;
+            max-width: 600px;
+        }}
+        
+        .status {{
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #333;
+            border-radius: 4px;
+            font-family: monospace;
+        }}
+    </style>
+</head>
+<body>
+    <h1>{objective}</h1>
+    
+    <div id="gameContainer">
+        {"<canvas id='gameCanvas' width='800' height='600'></canvas>" if is_game else "<div id='appContainer'></div>"}
+    </div>
+    
+    {"<div class='controls'>" if is_game else ""}
+    {"<h3>Controls:</h3>" if is_game else ""}
+    {"<p><strong>WASD or Arrow Keys:</strong> Move player</p>" if is_game else ""}
+    {"<p><strong>Mouse:</strong> Look around</p>" if is_game else ""}
+    {"<p><strong>Space:</strong> Action/Shoot</p>" if is_game else ""}
+    {"</div>" if is_game else ""}
+    
+    <div class="status" id="status">
+        Loading JavaScript components...
+    </div>
+    
+    <!-- Load all JavaScript files -->"""
+
+        # Add script tags for all JavaScript files
+        for js_file in sorted(js_files):
+            html_content += f'\n    <script src="{js_file}"></script>'
+        
+        html_content += f"""
+    
+    <script>
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {{
+            console.log('Initializing {objective}...');
+            document.getElementById('status').textContent = 'Application loaded successfully!';
+            
+            {"// Initialize game if canvas exists" if is_game else "// Initialize application"}
+            {"const canvas = document.getElementById('gameCanvas');" if is_game else ""}
+            {"if (canvas) {" if is_game else ""}
+            {"    console.log('Canvas found, starting game...');" if is_game else ""}
+            {"    // Game initialization code will be handled by loaded scripts" if is_game else ""}
+            {"}" if is_game else ""}
+        }});
+        
+        // Error handling
+        window.addEventListener('error', function(e) {{
+            document.getElementById('status').textContent = 'Error: ' + e.message;
+            console.error('Application error:', e);
+        }});
+    </script>
+</body>
+</html>"""
+        
+        try:
+            with open(html_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            print(f"[PROJECT] Generated HTML entry point: index.html")
+        except Exception as e:
+            print(f"[PROJECT] Error generating HTML entry point: {e}")
+    
+    def _generate_game_html_entry(self, project_folder: str, js_files: List[str], objective: str):
+        """Generate specialized HTML entry point for games."""
+        # This could be more sophisticated for different game types
+        self._generate_html_entry_point(project_folder, js_files, objective)
+    
+    def _generate_python_main(self, project_folder: str, py_files: List[str], objective: str):
+        """Generate Python main.py entry point."""
+        
+        main_path = os.path.join(project_folder, "main.py")
+        if os.path.exists(main_path):
+            return  # Don't overwrite existing main
+        
+        # Analyze files to determine import structure
+        imports = []
+        for py_file in py_files:
+            if py_file != 'main.py':
+                module_name = py_file.replace('.py', '')
+                imports.append(module_name)
+        
+        main_content = f'''#!/usr/bin/env python3
+"""
+Main Entry Point: {objective}
+Generated by AI Agent Framework
+"""
+
+import sys
+import os
+
+# Add current directory to path for local imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import project modules
+'''
+
+        for module in imports:
+            # Try to guess the main class/function name
+            class_name = ''.join(word.capitalize() for word in module.split('_'))
+            main_content += f"# from {module} import {class_name}\n"
+        
+        main_content += f'''
+
+def main():
+    """Main application entry point."""
+    print("Starting: {objective}")
+    print("=" * 50)
+    
+    try:
+        # Initialize and run the application
+        # TODO: Call initialization functions from imported modules
+        print("Application modules loaded successfully!")
+        print("\\nAvailable modules:")
+'''
+
+        for module in imports:
+            main_content += f'        print(f"  - {module}.py")\n'
+        
+        main_content += f'''
+        
+        print("\\nTo run specific components, modify this main.py file")
+        print("or run individual module files directly.")
+        
+    except ImportError as e:
+        print(f"Error importing modules: {{e}}")
+        print("Make sure all required dependencies are installed.")
+    except Exception as e:
+        print(f"Application error: {{e}}")
+        return 1
+    
+    return 0
+
+if __name__ == "__main__":
+    exit_code = main()
+    sys.exit(exit_code)
+'''
+        
+        try:
+            with open(main_path, 'w', encoding='utf-8') as f:
+                f.write(main_content)
+            print(f"[PROJECT] Generated Python entry point: main.py")
+        except Exception as e:
+            print(f"[PROJECT] Error generating Python main: {e}")
+    
+    def _generate_game_python_main(self, project_folder: str, py_files: List[str], objective: str):
+        """Generate specialized Python main for games."""
+        # This could include game-specific initialization
+        self._generate_python_main(project_folder, py_files, objective)
     
     def _generate_artifact_filename(self, task: Dict[str, Any], domain: str, language: str = None) -> str:
         """Generate appropriate filename for artifact."""

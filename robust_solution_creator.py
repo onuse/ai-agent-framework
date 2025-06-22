@@ -23,7 +23,7 @@ class RobustSolutionCreator:
         # For code tasks, detect programming language
         language_info = None
         if domain in ['code', 'ui', 'data', 'game']:
-            language_info = self.language_classifier.classify_language(task)
+            language_info = self._detect_language_with_context(task)
             print(f"[LANGUAGE] Detected: {language_info['language']} (confidence: {language_info['confidence']:.2f})")
             if language_info.get('reasoning'):
                 print(f"[LANGUAGE] {language_info['reasoning']}")
@@ -42,6 +42,22 @@ class RobustSolutionCreator:
             # Fallback to generic approach on any error
             print(f"[ROBUST] Specialized approach failed: {e}")
             return self._create_generic_solution(task, context, f"Specialized approach failed: {e}")
+    
+    def _detect_language_with_context(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        """Detect language using both task and original objective context."""
+        
+        # Get the original objective from task metadata
+        objective = task.get('subtask_data', {}).get('objective', '')
+        
+        # Create enhanced task context that includes the original objective
+        enhanced_task = {
+            'title': f"{task['title']} (from project: {objective})",
+            'description': f"{task['description']}. Original project objective: {objective}",
+            'subtask_data': task.get('subtask_data', {})
+        }
+        
+        # Run language classification on the enhanced context
+        return self.language_classifier.classify_language(enhanced_task)
     
     def _create_specialized_solution(self, task: Dict[str, Any], classification: Dict[str, Any], context: str, language_info: Dict[str, Any] = None) -> Dict[str, Any]:
         """Create solution using specialized domain approach with language awareness."""
@@ -436,4 +452,3 @@ Focus on creating a working example that runs without any issues."""
                 'success': False,
                 'error': f'Generic solution creation failed: {str(e)}'
             }
-    

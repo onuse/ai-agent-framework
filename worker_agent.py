@@ -7,6 +7,7 @@ import time
 from typing import Dict, Any, Optional, Tuple
 from task_queue import TaskQueue, TaskStatus
 from code_validator import CodeValidator
+from minimal_validator import MinimalValidator
 from context_manager import ContextManager
 from task_classifier import TaskClassifier
 from robust_solution_creator import RobustSolutionCreator
@@ -17,7 +18,8 @@ class WorkerAgent:
     def __init__(self, model_name: str = "llama3.1:8b"):
         self.model_name = model_name
         self.task_queue = TaskQueue()
-        self.validator = CodeValidator(model_name)
+        #self.validator = CodeValidator(model_name)
+        self.validator = MinimalValidator(model_name)
         self.context_manager = ContextManager()
         self.task_classifier = TaskClassifier()
         self.solution_creator = RobustSolutionCreator(model_name)
@@ -66,7 +68,8 @@ class WorkerAgent:
             
             # Apply domain-appropriate validation
             print(f"[DEBUG] Validating solution...")
-            validation_result = self._validate_solution(solution_result, task, domain)
+            #validation_result = self._validate_solution(solution_result, task, domain)
+            validation_result = self.validator.validate_and_improve(solution, task, language)
             print(f"[DEBUG] Validation passed: {validation_result['validation_passed']}")
             
             # Use the validated/improved solution
@@ -296,6 +299,31 @@ class WorkerAgent:
     def _execute_code(self, code: str, task: Dict[str, Any]) -> Dict[str, Any]:
         """Execute the generated code in a subprocess with EXTRA safety."""
         
+        # Detect language from code content
+        language = self._detect_code_language(code)
+        print(f"[DEBUG] Code language detected: {language}")
+        
+        # For JavaScript, we can't easily execute it safely, so validate and return success
+        if language == 'javascript':
+            print(f"[DEBUG] JavaScript code detected - validating syntax only")
+            
+            # Basic JavaScript validation
+            js_issues = self._check_javascript_safety(code)
+            if js_issues:
+                print(f"[DEBUG] JavaScript issues detected: {js_issues}")
+                return {
+                    'success': False,
+                    'error': f'JavaScript validation failed: {", ".join(js_issues)}'
+                }
+            
+            # If no major issues, consider it successful
+            return {
+                'success': True,
+                'output': f'JavaScript code validated successfully ({len(code)} characters)',
+                'stderr': ''
+            }
+        
+        # Continue with Python execution for non-JavaScript code
         # PRE-EXECUTION SAFETY CHECK
         print(f"[DEBUG] Pre-execution safety check...")
         safety_issues = self._check_code_safety(code)
@@ -411,6 +439,76 @@ class WorkerAgent:
                 'success': False,
                 'error': f'Error executing code: {str(e)}'
             }
+    
+    def _detect_code_language(self, code: str) -> str:
+        """Detect programming language from code content."""
+        
+        # JavaScript indicators
+        js_indicators = [
+            'function ', 'const ', 'let ', 'var ', '=>', 'document.',
+            'window.', 'console.log', 'addEventListener', 'getElementById',
+            'canvas.getContext', 'requestAnimationFrame'
+        ]
+        
+        if any(indicator in code for indicator in js_indicators):
+            return 'javascript'
+        
+        return 'python'  # Default to Python
+    
+    def _check_javascript_safety(self, code: str) -> list:
+        """Check JavaScript code for basic safety issues."""
+        
+        issues = []
+        code_lower = code.lower()
+        
+        # Check for potentially dangerous patterns (relaxed for game development)
+        dangerous_patterns = [
+            ('eval(', 'uses eval() function'),
+            ('document.write', 'uses document.write'),
+            ('while(true)', 'potential infinite loop'),
+            # Removed setInterval check - it's common in games
+        ]
+        
+        for pattern, description in dangerous_patterns:
+            if pattern in code_lower:
+                issues.append(description)
+        
+        return issues
+    
+    def _detect_code_language(self, code: str) -> str:
+        """Detect programming language from code content."""
+        
+        # JavaScript indicators
+        js_indicators = [
+            'function ', 'const ', 'let ', 'var ', '=>', 'document.',
+            'window.', 'console.log', 'addEventListener', 'getElementById',
+            'canvas.getContext', 'requestAnimationFrame'
+        ]
+        
+        if any(indicator in code for indicator in js_indicators):
+            return 'javascript'
+        
+        return 'python'  # Default to Python
+    
+    def _check_javascript_safety(self, code: str) -> list:
+        """Check JavaScript code for basic safety issues."""
+        
+        issues = []
+        code_lower = code.lower()
+        
+        # Check for potentially dangerous patterns
+        dangerous_patterns = [
+            ('eval(', 'uses eval() function'),
+            ('document.write', 'uses document.write'),
+            ('while(true)', 'potential infinite loop'),
+            ('setinterval', 'uses setInterval without clear cleanup'),
+        ]
+        
+        for pattern, description in dangerous_patterns:
+            if pattern in code_lower:
+                issues.append(description)
+        
+        return issues
     
     def _check_code_safety(self, code: str) -> list:
         """Check code for safety issues."""

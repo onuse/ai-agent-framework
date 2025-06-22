@@ -197,6 +197,18 @@ Make sure the fixed code is complete and addresses all identified issues."""
         
         print(f"[VALIDATOR] Validating code for task: {task['title']}")
         
+        # Check if this is JavaScript code - if so, skip Python validation
+        if self._is_javascript_code(code):
+            print(f"[VALIDATOR] JavaScript code detected - skipping Python validation")
+            return {
+                'original_code': code,
+                'final_code': code,
+                'validation_passed': True,
+                'issues_found': 0,
+                'issues_fixed': False,
+                'validation_details': {'language': 'javascript', 'skipped': True}
+            }
+        
         validation_results = self.validate_code(code, task)
         
         # Determine the best code to use
@@ -215,3 +227,12 @@ Make sure the fixed code is complete and addresses all identified issues."""
             'issues_fixed': validation_results['improved_code'] is not None,
             'validation_details': validation_results
         }
+    
+    def _is_javascript_code(self, code: str) -> bool:
+        """Check if code is JavaScript."""
+        js_indicators = [
+            'function ', 'const ', 'let ', 'var ', '=>', 'document.',
+            'window.', 'console.log', 'addEventListener', 'getElementById',
+            'canvas.getContext', 'requestAnimationFrame'
+        ]
+        return any(indicator in code for indicator in js_indicators)

@@ -76,6 +76,11 @@ class LanguageClassifier:
                 'reasoning': 'Not a programming task'
             }
         
+        # PRIORITY FIX: Check for explicit language mentions first
+        explicit_language = self._check_explicit_language_mentions(title, description, deliverable)
+        if explicit_language:
+            return explicit_language
+        
         # Create LLM classification prompt
         prompt = self._create_language_classification_prompt(title, description, deliverable)
         
@@ -95,6 +100,38 @@ class LanguageClassifier:
             print(f"[LANGUAGE] LLM classification failed: {e}")
             # Fallback to simple heuristic
             return self._fallback_language_classification(title, description, deliverable)
+    
+    def _check_explicit_language_mentions(self, title: str, description: str, deliverable: str) -> Optional[Dict[str, Any]]:
+        """Check for explicit language mentions with high priority."""
+        
+        combined_text = f"{title} {description} {deliverable}".lower()
+        
+        # Explicit language mentions (case-insensitive)
+        explicit_patterns = {
+            'javascript': ['javascript', 'js ', ' js', 'node.js', 'html5', 'canvas', 'browser game', 'web game'],
+            'java': ['java ', ' java', 'android', 'spring boot'],
+            'python': ['python', 'django', 'flask', 'pandas', 'numpy'],
+            'cpp': ['c++', 'cpp', 'unreal', 'opengl'],
+            'csharp': ['c#', 'csharp', 'c sharp', '.net', 'unity'],
+            'go': ['golang', ' go ', 'gin framework'],
+            'rust': ['rust ', 'cargo', 'wasm']
+        }
+        
+        for language, patterns in explicit_patterns.items():
+            for pattern in patterns:
+                if pattern in combined_text:
+                    return {
+                        'language': language,
+                        'confidence': 0.95,
+                        'reasoning': f'Explicit mention detected: "{pattern}"',
+                        'key_indicators': [pattern],
+                        'is_programming_task': True,
+                        'classification_method': 'explicit_mention',
+                        'file_extension': self.supported_languages[language]['file_extensions'][0],
+                        'execution_command': self.supported_languages[language]['execution_command']
+                    }
+        
+        return None
     
     def _create_language_classification_prompt(self, title: str, description: str, deliverable: str) -> str:
         """Create LLM prompt for language classification."""
@@ -227,11 +264,11 @@ IMPORTANT:
         
         combined_text = f"{title} {description} {deliverable}".lower()
         
-        # Simple keyword-based fallback
-        if any(word in combined_text for word in ['javascript', 'js', 'web', 'browser', 'html', 'canvas']):
+        # IMPROVED fallback with explicit checks
+        if any(word in combined_text for word in ['javascript', 'js', 'web', 'browser', 'html', 'canvas', 'html5']):
             return {
                 'language': 'javascript',
-                'confidence': 0.7,
+                'confidence': 0.8,
                 'reasoning': 'Fallback: Web/JavaScript keywords detected',
                 'is_programming_task': True,
                 'classification_method': 'keyword_fallback',

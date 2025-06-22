@@ -198,6 +198,14 @@ IMPORTANT:
             "next_actions": ["Continue with pending tasks"] if pending_tasks > 0 else ["Project complete"]
         }
     
+    def perform_final_project_validation(self, project_id: str, objective: str) -> Dict[str, Any]:
+        """Perform comprehensive final validation when project is complete."""
+        
+        from project_completeness_agent import ProjectCompletenessAgent
+        
+        completeness_agent = ProjectCompletenessAgent(self.model_name)
+        return completeness_agent.perform_final_validation(project_id, objective)
+    
     def generate_additional_tasks(self, project_id: str, evaluation: Dict[str, Any]):
         """Generate additional tasks based on evaluation results."""
         

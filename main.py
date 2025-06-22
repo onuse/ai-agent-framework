@@ -77,6 +77,11 @@ def main():
         # Check if project is complete
         if evaluation.get('status') == 'complete':
             print("\n🎉 PROJECT COMPLETED!")
+            
+            # Perform final validation
+            print("\n[MANAGER] Performing final project validation...")
+            validation_report = manager.perform_final_project_validation(project_id, objective)
+            
             break
         
         # Generate additional tasks if needed
