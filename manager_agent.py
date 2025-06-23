@@ -2,118 +2,221 @@ import ollama
 import json
 from typing import List, Dict, Any, Optional
 from task_queue import TaskQueue, TaskStatus
+from project_planner import ProjectPlanner
 
 class ManagerAgent:
     def __init__(self, model_name: str = "llama3.1:8b"):
         self.model_name = model_name
         self.task_queue = TaskQueue()
+        self.project_planner = ProjectPlanner(model_name)
+        self.active_project_plans = {}  # Store project plans by project_id
     
     def create_project(self, project_name: str, objective: str) -> str:
-        """Create a new project and generate initial task breakdown."""
+        """Create a new project with intelligent planning-first approach."""
+        
+        print(f"[MANAGER] Creating project: {project_name}")
+        print(f"[MANAGER] Objective: {objective}")
+        
+        # Create project in task queue
         project_id = self.task_queue.create_project(project_name, objective)
         
-        # Generate initial task breakdown
-        self._generate_focused_task_breakdown(project_id, objective)
+        # Phase 1: Create comprehensive project plan
+        print(f"\n[MANAGER] Phase 1: Creating project plan...")
+        project_plan = self.project_planner.create_project_plan(objective)
+        
+        # Store the plan for this project
+        self.active_project_plans[project_id] = project_plan
+        
+        # Phase 2: Generate initial batch of tasks from the plan
+        print(f"\n[MANAGER] Phase 2: Generating initial tasks...")
+        self._generate_tasks_from_plan(project_id, project_plan)
         
         return project_id
     
-    def _generate_focused_task_breakdown(self, project_id: str, objective: str):
-        """Generate focused, executable tasks that match the objective domain."""
+    def _generate_tasks_from_plan(self, project_id: str, project_plan: Dict[str, Any], max_tasks: int = 3):
+        """Generate the next batch of tasks from the project plan."""
         
-        # First, classify the objective to understand what domain we're working in
-        domain_classification = self._classify_objective_domain(objective)
+        # Get next ready tasks from the plan
+        next_tasks = self.project_planner.get_next_tasks_from_plan(project_plan, max_tasks)
         
-        prompt = f"""You are a project manager creating a focused task breakdown for a specific objective.
-
-OBJECTIVE: {objective}
-DOMAIN: {domain_classification['domain']}
-INTENT: {domain_classification['intent']}
-
-Create 2-3 FOCUSED, EXECUTABLE tasks that directly achieve this objective. Each task should:
-1. Be immediately actionable and specific
-2. Use only standard Python libraries (no external dependencies)
-3. Build directly toward the stated objective
-4. Be completable in isolation
-5. Match the domain and intent of the objective
-
-DOMAIN-SPECIFIC GUIDELINES:
-- CODE: Create working Python scripts with sample data, no external imports
-- CREATIVE: Write actual content (stories, poems, etc.), not code about writing
-- DATA: Use built-in Python for analysis, create sample datasets
-- GAME: Build simple text-based or console games using only standard libraries
-- UI: Create simple text-based interfaces or basic tkinter (if GUI needed)
-- RESEARCH: Write actual research documents, not tools for research
-
-For "{objective}", focus on the ACTUAL DELIVERABLE, not supporting infrastructure.
-
-Respond in JSON format:
-{{
-    "subtasks": [
-        {{
-            "title": "Direct, actionable task title",
-            "description": "Specific description of what to implement/create",
-            "deliverable": "Exact output expected"
-        }}
-    ]
-}}
-
-IMPORTANT: 
-- For creative writing → tasks should CREATE the writing, not code
-- For data analysis → tasks should ANALYZE data, not just prepare tools
-- For games → tasks should CREATE playable games, not just engines
-- For simple objectives → 1-2 tasks maximum, keep it focused"""
-
-        try:
-            response = ollama.chat(
-                model=self.model_name,
-                messages=[{"role": "user", "content": prompt}]
+        if not next_tasks:
+            print(f"[MANAGER] No ready tasks found in plan")
+            return
+        
+        print(f"[MANAGER] Adding {len(next_tasks)} tasks to queue")
+        
+        # Add tasks to queue with proper metadata
+        for task_data in next_tasks:
+            # Convert plan task to queue task
+            queue_task_data = {
+                'deliverable': task_data.get('deliverable', 'Implementation'),
+                'project_id': project_id,
+                'domain': task_data.get('domain', 'code'),
+                'objective': project_plan['metadata']['objective'],
+                'task_type': 'planned',
+                'plan_task_id': task_data.get('id'),
+                'estimated_effort': task_data.get('estimated_effort', 'Medium'),
+                'dependencies': task_data.get('dependencies', [])
+            }
+            
+            task_id = self.task_queue.add_task(
+                title=task_data['title'],
+                description=task_data['description'],
+                subtask_data=queue_task_data,
+                priority=task_data.get('priority', 5)
             )
             
-            # Parse the JSON response
-            content = response['message']['content']
+            print(f"[MANAGER] Added task: {task_data['title']}")
+    
+    def on_task_completed(self, project_id: str, completed_task: Dict[str, Any]) -> bool:
+        """Handle task completion and generate next tasks if needed."""
+        
+        if project_id not in self.active_project_plans:
+            print(f"[MANAGER] No active plan found for project {project_id}")
+            return False
+        
+        project_plan = self.active_project_plans[project_id]
+        
+        # Mark task as completed in the plan
+        plan_task_id = completed_task.get('subtask_data', {}).get('plan_task_id')
+        if plan_task_id:
+            project_plan = self.project_planner.mark_task_completed(project_plan, plan_task_id)
+            self.active_project_plans[project_id] = project_plan
             
-            # Extract JSON from the response
-            start_idx = content.find('{')
-            end_idx = content.rfind('}') + 1
+            print(f"[MANAGER] Marked plan task {plan_task_id} as completed")
+        
+        # Check if we need to generate more tasks
+        current_phase = project_plan.get('execution_metadata', {}).get('current_phase', 'development')
+        print(f"[MANAGER] Project phase: {current_phase}")
+        
+        # Generate next batch of tasks if not complete
+        if not self.project_planner.is_plan_complete(project_plan):
+            pending_tasks = self.task_queue.get_task_count_by_status().get('pending', 0)
             
-            if start_idx != -1 and end_idx != -1:
-                json_content = content[start_idx:end_idx]
-                task_data = json.loads(json_content)
-                
-                # Add tasks to queue with high priority (newest first)
-                for i, subtask in enumerate(task_data['subtasks']):
-                    self.task_queue.add_task(
-                        title=subtask['title'],
-                        description=subtask['description'],
-                        subtask_data={
-                            'deliverable': subtask['deliverable'],
-                            'project_id': project_id,
-                            'domain': domain_classification['domain'],
-                            'objective': objective,
-                            'task_type': 'initial'
-                        },
-                        priority=len(task_data['subtasks']) - i  # Higher priority for earlier tasks
-                    )
-                
-                print(f"Created {len(task_data['subtasks'])} focused subtasks for {domain_classification['domain']} objective")
-                
-        except Exception as e:
-            print(f"Error generating task breakdown: {e}")
-            # Fallback: create a single, direct task
-            self.task_queue.add_task(
-                title=f"Complete: {objective}",
-                description=f"Directly implement or create: {objective}",
-                subtask_data={
-                    'deliverable': 'Direct implementation of the objective', 
-                    'project_id': project_id,
-                    'domain': domain_classification['domain'],
-                    'objective': objective,
-                    'task_type': 'initial'
-                }
-            )
+            # If we're running low on pending tasks, generate more
+            if pending_tasks <= 1:
+                print(f"[MANAGER] Generating next batch of tasks...")
+                self._generate_tasks_from_plan(project_id, project_plan)
+                return True
+        else:
+            print(f"[MANAGER] Project plan completed!")
+            self.task_queue.update_project_phase(project_id, "completed")
+        
+        return False
+    
+    def evaluate_progress(self, project_id: str) -> Dict[str, Any]:
+        """Evaluate current project progress using the project plan."""
+        
+        project_state = self.task_queue.get_project_state(project_id)
+        if not project_state:
+            return {"error": "Project not found"}
+        
+        # Get task completion statistics
+        completed_tasks = self.task_queue.get_completed_tasks()
+        task_counts = self.task_queue.get_task_count_by_status()
+        
+        # Get project plan if available
+        project_plan = self.active_project_plans.get(project_id)
+        
+        if project_plan:
+            # Plan-based evaluation
+            total_planned_tasks = project_plan['task_breakdown'].get('estimated_tasks', 0)
+            completed_planned_tasks = len(project_plan.get('execution_metadata', {}).get('completed_tasks', []))
+            
+            completion_percentage = (completed_planned_tasks / total_planned_tasks * 100) if total_planned_tasks > 0 else 0
+            current_phase = project_plan.get('execution_metadata', {}).get('current_phase', 'planning')
+            
+            # Determine status based on plan progress
+            if self.project_planner.is_plan_complete(project_plan):
+                status = "ready_for_validation"
+            elif completion_percentage >= 80:
+                status = "finalization"
+            elif completion_percentage >= 50:
+                status = "integration"
+            else:
+                status = "development"
+            
+            return {
+                "status": status,
+                "completion_percentage": completion_percentage,
+                "assessment": f"Completed {completed_planned_tasks}/{total_planned_tasks} planned tasks",
+                "current_phase": current_phase,
+                "plan_available": True,
+                "next_actions": self._get_next_actions_from_plan(project_plan),
+                "estimated_tasks_remaining": total_planned_tasks - completed_planned_tasks
+            }
+        else:
+            # Fallback to old evaluation method
+            pending_tasks = task_counts.get('pending', 0)
+            completed_count = task_counts.get('completed', 0)
+            failed_count = task_counts.get('failed', 0)
+            
+            total_tasks = pending_tasks + completed_count + failed_count
+            completion_percentage = (completed_count / total_tasks * 100) if total_tasks > 0 else 0
+            
+            if pending_tasks == 0 and completed_count > 0:
+                status = "ready_for_validation"
+            elif completion_percentage >= 50:
+                status = "development"
+            else:
+                status = "planning"
+            
+            return {
+                "status": status,
+                "completion_percentage": completion_percentage,
+                "assessment": f"Completed {completed_count} tasks, {pending_tasks} remaining",
+                "current_phase": "unknown",
+                "plan_available": False,
+                "next_actions": ["Continue with pending tasks"]
+            }
+    
+    def _get_next_actions_from_plan(self, project_plan: Dict[str, Any]) -> List[str]:
+        """Get next recommended actions based on project plan."""
+        
+        current_phase = project_plan.get('execution_metadata', {}).get('current_phase', 'planning')
+        
+        if current_phase == 'completed':
+            return ["Perform final validation and user testing"]
+        elif current_phase == 'finalization':
+            return ["Complete remaining tasks", "Prepare for integration testing"]
+        elif current_phase == 'integration':
+            return ["Focus on component integration", "Test inter-component communication"]
+        elif current_phase == 'development':
+            return ["Continue core development tasks", "Monitor dependencies"]
+        else:
+            return ["Execute planned tasks"]
+    
+    def get_project_plan(self, project_id: str) -> Optional[Dict[str, Any]]:
+        """Get the project plan for a given project."""
+        return self.active_project_plans.get(project_id)
+    
+    def adapt_project_plan(self, project_id: str, completed_task_results: List[Dict[str, Any]]) -> bool:
+        """Adapt project plan based on actual progress and discoveries."""
+        
+        if project_id not in self.active_project_plans:
+            return False
+        
+        project_plan = self.active_project_plans[project_id]
+        
+        # Use project planner to adapt the plan
+        adapted_plan = self.project_planner.adapt_plan_based_on_progress(
+            project_plan, 
+            completed_task_results
+        )
+        
+        # If plan was modified, generate new tasks
+        if adapted_plan != project_plan:
+            self.active_project_plans[project_id] = adapted_plan
+            print(f"[MANAGER] Project plan adapted based on progress")
+            
+            # Generate any new tasks from the adapted plan
+            self._generate_tasks_from_plan(project_id, adapted_plan)
+            return True
+        
+        return False
     
     def generate_improvement_tasks_from_validation(self, project_id: str, objective: str, validation_report: Dict[str, Any]) -> List[str]:
-        """NEW: Generate specific improvement tasks based on user perspective validation."""
+        """Generate specific improvement tasks based on user perspective validation."""
         
         user_perspective = validation_report.get('user_satisfaction', {})
         
@@ -263,94 +366,6 @@ IMPORTANT:
 
         return prompt
     
-    def _classify_objective_domain(self, objective: str) -> Dict[str, Any]:
-        """Quickly classify the objective to understand the domain and intent."""
-        
-        objective_lower = objective.lower()
-        
-        # Simple classification based on key indicators
-        if any(word in objective_lower for word in ['write', 'story', 'poem', 'creative', 'novel', 'tale']):
-            return {
-                'domain': 'creative',
-                'intent': 'Create written content/literature'
-            }
-        elif any(word in objective_lower for word in ['analyze', 'data', 'chart', 'graph', 'statistics', 'csv']):
-            return {
-                'domain': 'data', 
-                'intent': 'Perform data analysis or visualization'
-            }
-        elif any(word in objective_lower for word in ['game', 'play', 'player', 'level', 'arcade', 'puzzle']):
-            return {
-                'domain': 'game',
-                'intent': 'Create interactive game or entertainment'
-            }
-        elif any(word in objective_lower for word in ['interface', 'ui', 'form', 'button', 'gui', 'design']):
-            return {
-                'domain': 'ui',
-                'intent': 'Create user interface or interaction design'
-            }
-        elif any(word in objective_lower for word in ['research', 'investigate', 'study', 'report', 'document']):
-            return {
-                'domain': 'research',
-                'intent': 'Create research content or documentation'
-            }
-        else:
-            return {
-                'domain': 'code',
-                'intent': 'Build software application or script'
-            }
-    
-    def evaluate_progress(self, project_id: str) -> Dict[str, Any]:
-        """Evaluate current project progress and determine next actions."""
-        
-        project_state = self.task_queue.get_project_state(project_id)
-        if not project_state:
-            return {"error": "Project not found"}
-        
-        completed_tasks = self.task_queue.get_completed_tasks()
-        task_counts = self.task_queue.get_task_count_by_status()
-        
-        # Get completed task results for evaluation
-        completed_results = []
-        for task in completed_tasks:
-            if task['result']:
-                completed_results.append({
-                    'title': task['title'],
-                    'description': task['description'],
-                    'result': task['result']
-                })
-        
-        if not completed_results:
-            return {
-                "status": "in_progress",
-                "message": "No completed tasks to evaluate yet",
-                "pending_tasks": task_counts.get('pending', 0)
-            }
-        
-        # Simple evaluation based on task completion
-        pending_tasks = task_counts.get('pending', 0)
-        completed_count = task_counts.get('completed', 0)
-        failed_count = task_counts.get('failed', 0)
-        
-        total_tasks = pending_tasks + completed_count + failed_count
-        completion_percentage = (completed_count / total_tasks * 100) if total_tasks > 0 else 0
-        
-        # Determine status
-        if pending_tasks == 0 and completed_count > 0:
-            status = "ready_for_validation"  # Changed from "complete" to trigger validation
-        elif completion_percentage >= 50:
-            status = "development"
-        else:
-            status = "planning"
-        
-        return {
-            "status": status,
-            "completion_percentage": completion_percentage,
-            "assessment": f"Completed {completed_count} tasks, {pending_tasks} remaining",
-            "needs_additional_tasks": False,  # Will be determined by validation
-            "next_actions": ["Perform user perspective validation"] if status == "ready_for_validation" else ["Continue with pending tasks"]
-        }
-    
     def perform_final_project_validation(self, project_id: str, objective: str) -> Dict[str, Any]:
         """Perform comprehensive final validation when project is complete."""
         
@@ -379,13 +394,9 @@ IMPORTANT:
         
         return should_continue
     
-    def generate_additional_tasks(self, project_id: str, evaluation: Dict[str, Any]):
-        """Legacy method - now redirects to improvement task generation."""
-        print("[MANAGER] Use generate_improvement_tasks_from_validation() for targeted improvements")
-        pass
-    
     def get_project_summary(self, project_id: str) -> Dict[str, Any]:
-        """Get a summary of project status."""
+        """Get a summary of project status including plan information."""
+        
         project_state = self.task_queue.get_project_state(project_id)
         if not project_state:
             return {"error": "Project not found"}
@@ -393,11 +404,100 @@ IMPORTANT:
         task_counts = self.task_queue.get_task_count_by_status()
         completed_tasks = self.task_queue.get_completed_tasks()
         
-        return {
+        # Include project plan information if available
+        project_plan = self.active_project_plans.get(project_id)
+        plan_info = {}
+        
+        if project_plan:
+            execution_meta = project_plan.get('execution_metadata', {})
+            plan_info = {
+                'total_planned_tasks': project_plan['task_breakdown'].get('estimated_tasks', 0),
+                'completed_planned_tasks': len(execution_meta.get('completed_tasks', [])),
+                'current_phase': execution_meta.get('current_phase', 'unknown'),
+                'complexity_score': project_plan.get('metadata', {}).get('complexity_assessment', {}).get('complexity_score', 0),
+                'primary_domain': project_plan.get('project_summary', {}).get('primary_domain', 'unknown'),
+                'programming_languages': project_plan.get('project_summary', {}).get('programming_languages', [])
+            }
+        
+        summary = {
             "project_name": project_state['project_name'],
             "objective": project_state['objective'],
             "current_phase": project_state['current_phase'],
             "task_counts": task_counts,
             "completed_tasks": len(completed_tasks),
-            "latest_metadata": project_state.get('metadata', {})
+            "latest_metadata": project_state.get('metadata', {}),
+            "plan_info": plan_info
         }
+        
+        return summary
+    
+    def show_project_plan_status(self, project_id: str):
+        """Display detailed project plan status."""
+        
+        project_plan = self.active_project_plans.get(project_id)
+        if not project_plan:
+            print(f"[MANAGER] No project plan found for project {project_id}")
+            return
+        
+        print(f"\n📋 PROJECT PLAN STATUS")
+        print("="*50)
+        
+        # Plan metadata
+        metadata = project_plan.get('metadata', {})
+        complexity = metadata.get('complexity_assessment', {})
+        
+        print(f"🎯 Objective: {metadata.get('objective', 'Unknown')}")
+        print(f"📊 Complexity: {complexity.get('complexity_level', 'unknown')} ({complexity.get('complexity_score', 0)}/10)")
+        print(f"💻 Primary Domain: {project_plan.get('project_summary', {}).get('primary_domain', 'unknown')}")
+        
+        # Task progress
+        execution_meta = project_plan.get('execution_metadata', {})
+        total_tasks = project_plan['task_breakdown'].get('estimated_tasks', 0)
+        completed_tasks = len(execution_meta.get('completed_tasks', []))
+        current_phase = execution_meta.get('current_phase', 'planning')
+        
+        print(f"✅ Progress: {completed_tasks}/{total_tasks} tasks completed")
+        print(f"🚧 Current Phase: {current_phase}")
+        
+        # Show next ready tasks
+        next_tasks = self.project_planner.get_next_tasks_from_plan(project_plan, 5)
+        if next_tasks:
+            print(f"\n📝 Next Ready Tasks:")
+            for i, task in enumerate(next_tasks, 1):
+                print(f"  {i}. {task['title']} (Priority: {task.get('priority', 5)})")
+        else:
+            print(f"\n✨ All tasks completed or no ready tasks available")
+        
+        # Show phases
+        phases = project_plan['task_breakdown'].get('execution_phases', [])
+        if phases:
+            print(f"\n🔄 Execution Phases:")
+            for phase in phases:
+                phase_tasks = phase.get('tasks', [])
+                completed_in_phase = sum(1 for task_id in phase_tasks if task_id in execution_meta.get('completed_tasks', []))
+                print(f"  📁 {phase['phase']}: {completed_in_phase}/{len(phase_tasks)} tasks")
+                print(f"     {phase.get('description', 'No description')}")
+
+# Legacy methods for backward compatibility
+    def generate_additional_tasks(self, project_id: str, evaluation: Dict[str, Any]):
+        """Legacy method - now uses plan-based task generation."""
+        
+        if project_id in self.active_project_plans:
+            print("[MANAGER] Using plan-based task generation instead of legacy method")
+            project_plan = self.active_project_plans[project_id]
+            self._generate_tasks_from_plan(project_id, project_plan)
+        else:
+            print("[MANAGER] No project plan available - cannot generate additional tasks")
+    
+    def _classify_objective_domain(self, objective: str) -> Dict[str, Any]:
+        """Legacy method - now handled by project planner."""
+        
+        objective_lower = objective.lower()
+        
+        # Simple classification for backward compatibility
+        if any(word in objective_lower for word in ['write', 'story', 'poem', 'creative']):
+            return {'domain': 'creative', 'intent': 'Create written content'}
+        elif any(word in objective_lower for word in ['game', 'play', 'player']):
+            return {'domain': 'game', 'intent': 'Create interactive game'}
+        else:
+            return {'domain': 'code', 'intent': 'Build software application'}
