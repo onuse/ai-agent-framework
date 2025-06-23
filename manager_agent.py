@@ -89,7 +89,8 @@ IMPORTANT:
                             'deliverable': subtask['deliverable'],
                             'project_id': project_id,
                             'domain': domain_classification['domain'],
-                            'objective': objective
+                            'objective': objective,
+                            'task_type': 'initial'
                         },
                         priority=len(task_data['subtasks']) - i  # Higher priority for earlier tasks
                     )
@@ -106,9 +107,161 @@ IMPORTANT:
                     'deliverable': 'Direct implementation of the objective', 
                     'project_id': project_id,
                     'domain': domain_classification['domain'],
-                    'objective': objective
+                    'objective': objective,
+                    'task_type': 'initial'
                 }
             )
+    
+    def generate_improvement_tasks_from_validation(self, project_id: str, objective: str, validation_report: Dict[str, Any]) -> List[str]:
+        """NEW: Generate specific improvement tasks based on user perspective validation."""
+        
+        user_perspective = validation_report.get('user_satisfaction', {})
+        
+        if not user_perspective.get('applicable', True):
+            print("[MANAGER] No user perspective data available for improvement")
+            return []
+        
+        satisfaction_score = user_perspective.get('satisfaction_score', 5)
+        
+        # Only generate improvement tasks if user satisfaction is low
+        if satisfaction_score >= 7:
+            print(f"[MANAGER] User satisfaction ({satisfaction_score}/10) is acceptable - no improvement needed")
+            return []
+        
+        print(f"[MANAGER] User satisfaction ({satisfaction_score}/10) is low - generating improvement tasks")
+        
+        # Create improvement prompt based on validation results
+        improvement_prompt = self._create_improvement_prompt(objective, validation_report)
+        
+        try:
+            response = ollama.chat(
+                model=self.model_name,
+                messages=[{"role": "user", "content": improvement_prompt}]
+            )
+            
+            content = response['message']['content']
+            
+            # Parse improvement tasks
+            start_idx = content.find('{')
+            end_idx = content.rfind('}') + 1
+            
+            if start_idx != -1 and end_idx != -1:
+                json_content = content[start_idx:end_idx]
+                improvement_data = json.loads(json_content)
+                
+                # Create improvement tasks with high priority
+                improvement_task_ids = []
+                for i, task in enumerate(improvement_data.get('improvement_tasks', [])):
+                    task_id = self.task_queue.add_task(
+                        title=task['title'],
+                        description=task['description'],
+                        subtask_data={
+                            'deliverable': task['deliverable'],
+                            'project_id': project_id,
+                            'domain': task.get('domain', 'code'),
+                            'objective': objective,
+                            'task_type': 'improvement',
+                            'addresses_issue': task.get('addresses_issue', 'user_satisfaction')
+                        },
+                        priority=100 + i  # Very high priority for improvement tasks
+                    )
+                    improvement_task_ids.append(task_id)
+                
+                print(f"[MANAGER] Generated {len(improvement_task_ids)} improvement tasks")
+                return improvement_task_ids
+                
+        except Exception as e:
+            print(f"[MANAGER] Error generating improvement tasks: {e}")
+            # Fallback: create a generic integration task
+            fallback_task_id = self.task_queue.add_task(
+                title="Fix User Experience Issues",
+                description=f"Address the issues preventing users from successfully using: {objective}",
+                subtask_data={
+                    'deliverable': 'Working, user-friendly implementation',
+                    'project_id': project_id,
+                    'domain': 'code',
+                    'objective': objective,
+                    'task_type': 'improvement',
+                    'addresses_issue': 'general_usability'
+                },
+                priority=100
+            )
+            return [fallback_task_id]
+        
+        return []
+    
+    def _create_improvement_prompt(self, objective: str, validation_report: Dict[str, Any]) -> str:
+        """Create targeted improvement prompt based on validation results."""
+        
+        user_perspective = validation_report.get('user_satisfaction', {})
+        artifacts = validation_report.get('artifacts', [])
+        
+        # Build context about current state
+        current_files = []
+        for artifact in artifacts:
+            current_files.append(f"- {artifact['name']} ({artifact['type']}, {artifact['size']} bytes)")
+        
+        files_context = "\n".join(current_files) if current_files else "No files found"
+        
+        # Extract key issues
+        major_gaps = user_perspective.get('major_gaps', [])
+        biggest_problem = user_perspective.get('the_one_biggest_problem', 'Unknown issue')
+        quick_fix = user_perspective.get('quick_fix_suggestion', 'No suggestion provided')
+        first_impression = user_perspective.get('first_impression', 'Unknown')
+        clear_entry_point = user_perspective.get('clear_entry_point', False)
+        actually_works = user_perspective.get('actually_works', False)
+        
+        prompt = f"""You are a project manager fixing a deliverable that doesn't meet user expectations.
+
+ORIGINAL OBJECTIVE: {objective}
+USER SATISFACTION: {user_perspective.get('satisfaction_score', 5)}/10
+USER SATISFIED: {user_perspective.get('user_would_be_satisfied', False)}
+
+CURRENT STATE:
+{files_context}
+
+KEY PROBLEMS IDENTIFIED:
+- Biggest Problem: {biggest_problem}
+- Quick Fix Needed: {quick_fix}
+- Clear Entry Point: {clear_entry_point}
+- Actually Works: {actually_works}
+- First Impression: {first_impression}
+- Major Gaps: {', '.join(major_gaps) if major_gaps else 'None specified'}
+
+USER'S HONEST ASSESSMENT: {user_perspective.get('honest_assessment', 'No assessment provided')}
+
+Your job is to create 1-3 specific, targeted improvement tasks that will fix these issues and make the user satisfied.
+
+FOCUS ON:
+1. If no clear entry point → Create proper entry point (index.html, main.py, etc.)
+2. If files aren't connected → Create integration/initialization code
+3. If it doesn't actually work → Fix the core functionality
+4. If user can't run it → Add clear run instructions and setup
+
+Create tasks that address the ROOT CAUSE, not symptoms.
+
+Respond in JSON format:
+{{
+    "improvement_tasks": [
+        {{
+            "title": "Specific fix task title",
+            "description": "Detailed description of what to implement/fix",
+            "deliverable": "Exact output that will resolve the issue",
+            "addresses_issue": "Which specific problem this solves",
+            "domain": "code/creative/data/ui/research/game"
+        }}
+    ],
+    "strategy": "Brief explanation of the improvement approach"
+}}
+
+IMPORTANT:
+- Focus on making it ACTUALLY WORK for the user
+- Address the biggest problem first
+- Create working connections between components
+- Ensure there's a clear way to run/use the deliverable
+- Be specific about what files to create or modify"""
+
+        return prompt
     
     def _classify_objective_domain(self, objective: str) -> Dict[str, Any]:
         """Quickly classify the objective to understand the domain and intent."""
@@ -184,7 +337,7 @@ IMPORTANT:
         
         # Determine status
         if pending_tasks == 0 and completed_count > 0:
-            status = "complete"
+            status = "ready_for_validation"  # Changed from "complete" to trigger validation
         elif completion_percentage >= 50:
             status = "development"
         else:
@@ -194,8 +347,8 @@ IMPORTANT:
             "status": status,
             "completion_percentage": completion_percentage,
             "assessment": f"Completed {completed_count} tasks, {pending_tasks} remaining",
-            "needs_additional_tasks": False,  # Keep it simple
-            "next_actions": ["Continue with pending tasks"] if pending_tasks > 0 else ["Project complete"]
+            "needs_additional_tasks": False,  # Will be determined by validation
+            "next_actions": ["Perform user perspective validation"] if status == "ready_for_validation" else ["Continue with pending tasks"]
         }
     
     def perform_final_project_validation(self, project_id: str, objective: str) -> Dict[str, Any]:
@@ -206,12 +359,29 @@ IMPORTANT:
         completeness_agent = ProjectCompletenessAgent(self.model_name)
         return completeness_agent.perform_final_validation(project_id, objective)
     
-    def generate_additional_tasks(self, project_id: str, evaluation: Dict[str, Any]):
-        """Generate additional tasks based on evaluation results."""
+    def should_continue_improvement(self, validation_report: Dict[str, Any], improvement_attempt: int, max_attempts: int = 3) -> bool:
+        """Determine if we should continue trying to improve the project."""
         
-        # For now, avoid generating additional tasks to keep things simple
-        # This was causing the framework to generate too many unnecessary tasks
-        print("[MANAGER] Skipping additional task generation to keep project focused")
+        if improvement_attempt >= max_attempts:
+            print(f"[MANAGER] Reached maximum improvement attempts ({max_attempts})")
+            return False
+        
+        user_satisfaction = validation_report.get('user_satisfaction', {})
+        satisfaction_score = user_satisfaction.get('satisfaction_score', 5)
+        
+        # Continue if user satisfaction is below 7/10
+        should_continue = satisfaction_score < 7
+        
+        if should_continue:
+            print(f"[MANAGER] User satisfaction ({satisfaction_score}/10) still low - continuing improvement")
+        else:
+            print(f"[MANAGER] User satisfaction ({satisfaction_score}/10) acceptable - stopping improvement")
+        
+        return should_continue
+    
+    def generate_additional_tasks(self, project_id: str, evaluation: Dict[str, Any]):
+        """Legacy method - now redirects to improvement task generation."""
+        print("[MANAGER] Use generate_improvement_tasks_from_validation() for targeted improvements")
         pass
     
     def get_project_summary(self, project_id: str) -> Dict[str, Any]:
