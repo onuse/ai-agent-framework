@@ -1,12 +1,23 @@
-import ollama
+from llm_client import LLMClient
+from config import get_llm_config
 import json
 from typing import Dict, Any, Optional
 
 class LanguageClassifier:
     """LLM-powered language classifier for programming tasks."""
     
-    def __init__(self, model_name: str = "llama3.1:8b"):
-        self.model_name = model_name
+    def __init__(self, model_name: str = None):
+        # Get LLM configuration
+        llm_config = get_llm_config()
+        self.model_name = model_name or llm_config["model"]
+
+        # Initialize LLM client
+        self.llm_client = LLMClient(
+            provider=llm_config["provider"],
+            model=self.model_name,
+            api_key=llm_config.get("api_key"),
+            base_url=llm_config.get("base_url")
+        )
         self.supported_languages = {
             'javascript': {
                 'name': 'JavaScript/Node.js',
@@ -85,8 +96,7 @@ class LanguageClassifier:
         prompt = self._create_language_classification_prompt(title, description, deliverable)
         
         try:
-            response = ollama.chat(
-                model=self.model_name,
+            response = self.llm_client.chat(
                 messages=[{"role": "user", "content": prompt}]
             )
             

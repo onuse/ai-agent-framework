@@ -1,13 +1,24 @@
-import ollama
 import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+from llm_client import LLMClient
+from config import get_llm_config
 
 class ProjectPlanner:
     """Autonomous project planner that creates comprehensive project plans before execution."""
-    
-    def __init__(self, model_name: str = "llama3.1:8b"):
-        self.model_name = model_name
+
+    def __init__(self, model_name: str = None):
+        # Get LLM configuration
+        llm_config = get_llm_config()
+        self.model_name = model_name or llm_config["model"]
+
+        # Initialize LLM client
+        self.llm_client = LLMClient(
+            provider=llm_config["provider"],
+            model=self.model_name,
+            api_key=llm_config.get("api_key"),
+            base_url=llm_config.get("base_url")
+        )
     
     def create_project_plan(self, objective: str) -> Dict[str, Any]:
         """Create a comprehensive project plan for the given objective."""
@@ -22,8 +33,7 @@ class ProjectPlanner:
         plan_prompt = self._create_planning_prompt(objective, complexity_assessment)
         
         try:
-            response = ollama.chat(
-                model=self.model_name,
+            response = self.llm_client.chat(
                 messages=[{"role": "user", "content": plan_prompt}]
             )
             
@@ -71,8 +81,7 @@ COMPLEXITY GUIDELINES:
 - 9-10: Enterprise systems, advanced AI, complex distributed systems"""
 
         try:
-            response = ollama.chat(
-                model=self.model_name,
+            response = self.llm_client.chat(
                 messages=[{"role": "user", "content": complexity_prompt}]
             )
             

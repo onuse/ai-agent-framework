@@ -1,4 +1,3 @@
-import ollama
 import os
 import subprocess
 import tempfile
@@ -15,7 +14,7 @@ from multilanguage_solution_creators import MultiLanguageExecutor
 from project_folder_manager import ProjectFolderManager
 
 class WorkerAgent:
-    def __init__(self, model_name: str = "llama3.1:8b"):
+    def __init__(self, model_name: str = None):
         self.model_name = model_name
         self.task_queue = TaskQueue()
         self.validator = MinimalValidator(model_name)

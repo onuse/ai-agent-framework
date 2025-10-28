@@ -1,4 +1,5 @@
-import ollama
+from llm_client import LLMClient
+from config import get_llm_config
 import os
 import json
 from typing import Dict, Any, List, Optional
@@ -9,8 +10,18 @@ from language_classifier import LanguageClassifier
 class RefinementAgent:
     """Autonomous agent that evaluates projects and generates improvement plans."""
     
-    def __init__(self, model_name: str = "llama3.1:8b"):
-        self.model_name = model_name
+    def __init__(self, model_name: str = None):
+        # Get LLM configuration
+        llm_config = get_llm_config()
+        self.model_name = model_name or llm_config["model"]
+
+        # Initialize LLM client
+        self.llm_client = LLMClient(
+            provider=llm_config["provider"],
+            model=self.model_name,
+            api_key=llm_config.get("api_key"),
+            base_url=llm_config.get("base_url")
+        )
         self.task_queue = TaskQueue()
         self.context_manager = ContextManager()
         self.language_classifier = LanguageClassifier()
@@ -178,8 +189,7 @@ Respond in JSON format:
 }"""
 
         try:
-            response = ollama.chat(
-                model=self.model_name,
+            response = self.llm_client.chat(
                 messages=[{"role": "user", "content": analysis_prompt}]
             )
             
@@ -240,8 +250,7 @@ Respond in JSON format:
 }}"""
 
         try:
-            response = ollama.chat(
-                model=self.model_name,
+            response = self.llm_client.chat(
                 messages=[{"role": "user", "content": analysis_prompt}]
             )
             

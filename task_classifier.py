@@ -1,12 +1,23 @@
-import ollama
 import json
 from typing import Dict, Any, List, Optional
+from llm_client import LLMClient
+from config import get_llm_config
 
 class TaskClassifier:
     """LLM-powered task classifier that understands context and intent."""
-    
-    def __init__(self, model_name: str = "llama3.1:8b"):
-        self.model_name = model_name
+
+    def __init__(self, model_name: str = None):
+        # Get LLM configuration
+        llm_config = get_llm_config()
+        self.model_name = model_name or llm_config["model"]
+
+        # Initialize LLM client
+        self.llm_client = LLMClient(
+            provider=llm_config["provider"],
+            model=self.model_name,
+            api_key=llm_config.get("api_key"),
+            base_url=llm_config.get("base_url")
+        )
         self.domain_definitions = {
             'code': {
                 'description': 'Software development, programming, building applications, scripts, APIs, algorithms, or any technical implementation',
@@ -46,8 +57,7 @@ class TaskClassifier:
         prompt = self._create_classification_prompt(title, description, deliverable)
         
         try:
-            response = ollama.chat(
-                model=self.model_name,
+            response = self.llm_client.chat(
                 messages=[{"role": "user", "content": prompt}]
             )
             

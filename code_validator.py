@@ -2,12 +2,23 @@ import ast
 import subprocess
 import tempfile
 import os
-import ollama
 from typing import Dict, Any, List
+from llm_client import LLMClient
+from config import get_llm_config
 
 class CodeValidator:
-    def __init__(self, model_name: str = "llama3.1:8b"):
-        self.model_name = model_name
+    def __init__(self, model_name: str = None):
+        # Get LLM configuration
+        llm_config = get_llm_config()
+        self.model_name = model_name or llm_config["model"]
+
+        # Initialize LLM client
+        self.llm_client = LLMClient(
+            provider=llm_config["provider"],
+            model=self.model_name,
+            api_key=llm_config.get("api_key"),
+            base_url=llm_config.get("base_url")
+        )
     
     def validate_code(self, code: str, task: Dict[str, Any]) -> Dict[str, Any]:
         """Comprehensive code validation including syntax, common issues, and dry run."""
@@ -165,8 +176,7 @@ Provide the corrected code:
 Make sure the fixed code is complete and addresses all identified issues."""
 
         try:
-            response = ollama.chat(
-                model=self.model_name,
+            response = self.llm_client.chat(
                 messages=[{"role": "user", "content": prompt}]
             )
             

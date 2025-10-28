@@ -2,13 +2,25 @@ from typing import Dict, Any, List, Optional
 from solution_creators import SolutionCreatorFactory, BaseSolutionCreator
 from multilanguage_solution_creators import MultiLanguageCodeSolutionCreator
 from language_classifier import LanguageClassifier
-import ollama
+from llm_client import LLMClient
+from config import get_llm_config
 
 class RobustSolutionCreator:
     """Robust solution creator with fallback mechanisms, hybrid support, and multi-language capabilities."""
-    
-    def __init__(self, model_name: str = "llama3.1:8b"):
-        self.model_name = model_name
+
+    def __init__(self, model_name: str = None):
+        # Get LLM configuration
+        llm_config = get_llm_config()
+        self.model_name = model_name or llm_config["model"]
+
+        # Initialize LLM client
+        self.llm_client = LLMClient(
+            provider=llm_config["provider"],
+            model=self.model_name,
+            api_key=llm_config.get("api_key"),
+            base_url=llm_config.get("base_url")
+        )
+
         self.language_classifier = LanguageClassifier()
         self.multilang_code_creator = MultiLanguageCodeSolutionCreator(model_name)
         self.fallback_attempts = 0
@@ -114,11 +126,10 @@ class RobustSolutionCreator:
             prompt = self._create_safe_code_prompt(task, context)  # Default to code
         
         try:
-            response = ollama.chat(
-                model=self.model_name,
+            response = self.llm_client.chat(
                 messages=[{"role": "user", "content": prompt}]
             )
-            
+
             content = response['message']['content']
             return self._extract_solution(content)
             
@@ -439,11 +450,10 @@ print("Demonstration complete")
 Focus on creating a working example that runs without any issues."""
 
         try:
-            response = ollama.chat(
-                model=self.model_name,
+            response = self.llm_client.chat(
                 messages=[{"role": "user", "content": generic_prompt}]
             )
-            
+
             content = response['message']['content']
             return self._extract_solution(content)
             
